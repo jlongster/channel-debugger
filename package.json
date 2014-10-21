@@ -1,0 +1,14 @@
+{
+  "title": "csp-debugger",
+  "name": "csp-debugger",
+  "main": "index.js",
+  "version": "0.0.1",
+  "description": "CSP debugger",
+  "main": "index.js",
+  "author": "James Long",
+  "engines": {
+    "firefox": ">=33.0a1",
+    "fennec": ">=33.0a1"
+  },
+  "license": "MIT"
+}

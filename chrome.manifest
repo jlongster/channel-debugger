@@ -1,0 +1,3 @@
+chrome csp-debugger content/
+resource csp-debugger modules/
+
