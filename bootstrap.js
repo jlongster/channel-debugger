@@ -2,14 +2,13 @@
 const { classes: Cc, interfaces: Ci, utils: Cu, results: Cr } = Components;
 
 let loader = Cu.import("resource://gre/modules/commonjs/toolkit/loader.js", {}).Loader;
-let require = loader.Require(
-  new loader.Loader({
-    paths: { "": "resource://gre/modules/commonjs/",
-             "devtools": "resource:///modules/devtools",
-             "modules": "resource://csp-debugger" }
-  }),
-  { id: 'csp-debugger' }
-);
+var ContentLoader = new loader.Loader({
+  paths: { "": "resource://gre/modules/commonjs/",
+           "devtools": "resource:///modules/devtools",
+           "content": "chrome://csp-debugger/content" }
+});
+let require = loader.Require(ContentLoader, { id: 'csp-debugger' });
+ContentLoader.globals.setTimeout = require('sdk/timers').setTimeout;
 
 let gDevTools = require('devtools/gDevTools.jsm').gDevTools;
 let util = require('sdk/lang/functional');
@@ -25,12 +24,12 @@ let makeToolDefinition = util.once(() => {
       return true;
     },
     build: function(iframeWindow, toolbox) {
-      //let app = require("modules/main.js");
-      // Cu.import("resource://csp-debugger/main.js");
+      ContentLoader.globals.React = iframeWindow.React;
+      let app = require("content/main.js");
 
       return {
         open: function() {
-          // app.init(iframeWindow, toolbox);
+          app.init(iframeWindow, toolbox);
           return this;
         },
         destroy: function() {
