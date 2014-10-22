@@ -1362,7 +1362,7 @@ exports.chan = function(buf, xform, exHandler) {
 };
 
 exports.Box = Box;
-
+exports.Channel = Channel;
 exports.CLOSED = CLOSED;
 
 },{"./buffers":3,"./dispatch":5}],5:[function(require,module,exports){
@@ -1454,6 +1454,7 @@ exports.queue_delay = function(f, delay) {
 
 var dispatch = require("./dispatch");
 var select = require("./select");
+var Channel = require("./channels").Channel;
 
 var FnHandler = function(f) {
   this.f = f;
@@ -1534,9 +1535,9 @@ Process.prototype.run = function(response) {
   }
 
   var ins = iter.value;
+  var self = this;
 
   if (ins instanceof Instruction) {
-    var self = this;
     switch (ins.op) {
     case PUT:
       var data = ins.data;
@@ -1565,7 +1566,14 @@ Process.prototype.run = function(response) {
       }, ins.data.options);
       break;
     }
-  } else {
+  }
+  else if(ins instanceof Channel) {
+    var channel = ins;
+    take_then_callback(channel, function(value) {
+      self._continue(value);
+    });
+  }
+  else {
     this._continue(ins);
   }
 };
@@ -1601,7 +1609,7 @@ exports.alts = alts;
 
 exports.Process = Process;
 
-},{"./dispatch":5,"./select":7}],7:[function(require,module,exports){
+},{"./channels":4,"./dispatch":5,"./select":7}],7:[function(require,module,exports){
 "use strict";
 
 var Box = require("./channels").Box;

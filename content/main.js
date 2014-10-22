@@ -7,7 +7,8 @@ let { waitCallbackM } = require("./util");
 
 let App = React.createClass({
   getInitialState: function() {
-    return { evalResult: null };
+    return { evalResult: null,
+             text: '' };
   },
 
   eval: function() {
@@ -21,18 +22,27 @@ let App = React.createClass({
     go(function*() {
       let threadClient = this.props.threadClient;
       console.log(threadClient.state);
-      let [res] = yield take(waitCallbackM(threadClient,
-                                           threadClient.eval,
-                                           null, 'foo'));
+      let [res] = yield waitCallbackM(threadClient,
+                                      threadClient.eval,
+                                      null, 'foo');
       console.log(res.toSource());
       this.setState({ evalResult: res.toSource() });
     }.bind(this))
+  },
+
+  updateText: function(e) {
+    console.log('updateText');
+    this.setState({ text: e.target.value });
   },
 
   render: function() {
     return dom.div(
       null,
       dom.button({ onClick: this.eval }, 'eval'),
+      dom.input({ type: 'text',
+                  value: this.state.text,
+                  onChange: this.updateText }),
+      dom.div(null, this.state.text),
       dom.div(null, this.state.evalResult)
     );
   }
@@ -44,10 +54,8 @@ function init(window, toolbox) {
 
   // target.on('will-navigate', willNavigate);
 
-
-
   go(function*() {
-    let [res, threadClient] = yield take(waitCallbackM(target.activeTab,
+      let [res, threadClient] = yield take(waitCallbackM(target.activeTab,
                                                        target.activeTab.attachThread,
                                                        {}));
 
