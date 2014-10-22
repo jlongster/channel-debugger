@@ -605,7 +605,7 @@ module.exports = CallbackQueue;
  * @providesModule ChangeEventPlugin
  */
 
-"use strict";
+  "use strict";
 
 var EventConstants = _dereq_("./EventConstants");
 var EventPluginHub = _dereq_("./EventPluginHub");
@@ -925,8 +925,7 @@ var ChangeEventPlugin = {
       topLevelType,
       topLevelTarget,
       topLevelTargetID,
-      nativeEvent) {
-
+    nativeEvent) {
     var getTargetIDFunc, handleEventFunc;
     if (shouldUseChangeEvent(topLevelTarget)) {
       if (doesChangeEventBubble) {
@@ -6979,24 +6978,24 @@ var ReactDOM = mapObject({
   a: false,
   abbr: false,
   address: false,
-  area: true,
+  area: false,
   article: false,
   aside: false,
   audio: false,
   b: false,
-  base: true,
+  base: false,
   bdi: false,
   bdo: false,
   big: false,
   blockquote: false,
   body: false,
-  br: true,
+  br: false,
   button: false,
   canvas: false,
   caption: false,
   cite: false,
   code: false,
-  col: true,
+  col: false,
   colgroup: false,
   data: false,
   datalist: false,
@@ -7009,7 +7008,7 @@ var ReactDOM = mapObject({
   dl: false,
   dt: false,
   em: false,
-  embed: true,
+  embed: false,
   fieldset: false,
   figcaption: false,
   figure: false,
@@ -7023,25 +7022,25 @@ var ReactDOM = mapObject({
   h6: false,
   head: false,
   header: false,
-  hr: true,
+  hr: false,
   html: false,
   i: false,
   iframe: false,
-  img: true,
-  input: true,
+  img: false,
+  input: false,
   ins: false,
   kbd: false,
-  keygen: true,
+  keygen: false,
   label: false,
   legend: false,
   li: false,
-  link: true,
+  link: false,
   main: false,
   map: false,
   mark: false,
   menu: false,
   menuitem: false, // NOTE: Close tag should be omitted, but causes problems.
-  meta: true,
+  meta: false,
   meter: false,
   nav: false,
   noscript: false,
@@ -7051,7 +7050,7 @@ var ReactDOM = mapObject({
   option: false,
   output: false,
   p: false,
-  param: true,
+  param: false,
   picture: false,
   pre: false,
   progress: false,
@@ -7065,7 +7064,7 @@ var ReactDOM = mapObject({
   section: false,
   select: false,
   small: false,
-  source: true,
+  source: false,
   span: false,
   strong: false,
   style: false,
@@ -7082,12 +7081,12 @@ var ReactDOM = mapObject({
   time: false,
   title: false,
   tr: false,
-  track: true,
+  track: false,
   u: false,
   ul: false,
   'var': false,
   video: false,
-  wbr: true,
+  wbr: false,
 
   // SVG
   circle: false,
@@ -17262,10 +17261,14 @@ var supportedInputTypes = {
   'week': true
 };
 
+function nativeNodeName(elem) {
+  return elem.nodeName && elem.nodeName.toLowerCase();
+}
+
 function isTextInputElement(elem) {
   return elem && (
-    (elem.nodeName === 'INPUT' && supportedInputTypes[elem.type]) ||
-    elem.nodeName === 'TEXTAREA'
+    (nativeNodeName(elem) === 'input' && supportedInputTypes[elem.type]) ||
+      nativeNodeName(elem) === 'textarea'
   );
 }
 
