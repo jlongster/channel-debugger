@@ -25,6 +25,8 @@ let makeToolDefinition = util.once(() => {
     },
     build: function(iframeWindow, toolbox) {
       ContentLoader.globals.React = iframeWindow.React;
+      ContentLoader.globals.d3 = iframeWindow.d3;
+      ContentLoader.globals.requestAnimationFrame = iframeWindow.mozRequestAnimationFrame;
       let app = require("content/main.js");
 
       return {
@@ -40,6 +42,7 @@ let makeToolDefinition = util.once(() => {
 });
 
 function startup() {
+  console.log("STARTUP");
   gDevTools.registerTool(makeToolDefinition());
 }
 

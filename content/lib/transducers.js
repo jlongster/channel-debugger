@@ -99,8 +99,9 @@ function isFunction(x) {
 }
 
 function isObject(x) {
-  return x instanceof Object &&
-    Object.getPrototypeOf(x) === Object.getPrototypeOf({});
+  return true;
+  // return x instanceof Object &&
+  //   Object.getPrototypeOf(x) === Object.getPrototypeOf({});
 }
 
 function isNumber(x) {

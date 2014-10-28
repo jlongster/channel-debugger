@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<?xml-stylesheet href="chrome://csp-debugger/content/main.css" type="text/css"?>
 <!DOCTYPE window>
 <html xmlns="http://www.w3.org/1999/xhtml"
       xmlns:xul="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
   <body>
     <!-- <xul:script src="chrome://browser/content/loop/shared/libs/react-0.11.1.js" /> -->
     <script src="lib/react.js"></script>
+    <script src="lib/d3.js"></script>
   </body>
 </html>
