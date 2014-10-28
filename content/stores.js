@@ -22,14 +22,66 @@ let GlobalStore = {
 let EventStore = {
   add: chan(),
   processes: {},
+  activeHandlers: {},
 
   addEvent: function(event) {
-    let proc = processes[event.process];
-    // add "take from time T1 to T2"
-    // or "put from time T1 to T2"
-    // or "slept from time T1 to T2"
+    let type = event.type;
 
-    csp.putAsync(this.add, event);
+    if(type === 'sleep' || type === 'take' || type === 'put') {
+      let process = this.processes[event.process];
+      if(!process) {
+        process = this.processes[event.process] = {
+          history: [],
+          currentState: null
+        };
+      }
+
+      process.currentState = {
+        type: type,
+        started: event.time
+      };
+      this.activeHandlers[event.handler] = process;
+    }
+    else if(type === 'fulfillment') {
+      let fromProc = this.activeHandlers[event.fromHandler];
+      let toProc = this.activeHandlers[event.toHandler];
+
+      if(fromProc && toProc) {
+        let proc = (fromProc.currentState.started < toProc.currentState.started ?
+                    fromProc :
+                    toProc)
+
+        proc.history.push({
+          type: proc.currentState.type,
+          timeRange: [proc.currentState.started, event.time]
+        })
+        proc.currentState = null;
+
+        delete this.activeHandlers[event.fromHandler];
+        delete this.activeHandlers[event.toHandler];
+      }
+    }
+    else if(type === 'close') {
+      let proc = this.activeHandlers[event.handler];
+      if(proc) {
+        proc.history.push({
+          type: proc.currentState.type,
+          timeRange: [proc.currentState.started, event.time]
+        });
+        proc.currentState = null;
+      }
+    }
+
+    csp.putAsync(this.add, event, function() {});
+  },
+
+  getAllProcesses: function() {
+    return this.processes;
+  },
+
+  clear: function() {
+    this.processes = {};
+    this.activeHandlers = {};
   }
 }
 

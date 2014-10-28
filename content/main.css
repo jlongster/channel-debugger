@@ -34,7 +34,7 @@ div {
     float: right;
     width: calc(100% - 250px);
     height: calc(100% - 2em);
-    background-color: red;
+    background-color: blue;
 }
 
 .timeline svg {

@@ -60,6 +60,8 @@ function activate() {
     // Resume from the original clientEval
     yield rpc(threadClient, 'resume');
 
+    console.log('clearing');
+    stores.EventStore.clear();
     threadClient.addListener('paused', onPaused);
   });
 }
@@ -69,9 +71,18 @@ function deactivate() {
   return go(function*() {
     let { handlerCreate, handlerCommit, timeout } = activeBreakpoints;
     threadClient.removeListener('paused', onPaused);
-    yield rpc(handlerCreate, 'remove');
-    yield rpc(handlerCommit, 'remove');
-    yield rpc(timeout, 'remove');
+    if(handlerCreate) {
+      yield rpc(handlerCreate, 'remove');
+      activeBreakpoints.handlerCreate = null;
+    }
+    if(handlerCommit) {
+      yield rpc(handlerCommit, 'remove');
+      activeBreakpoints.handlerCommit = null;
+    }
+    if(timeout) {
+      yield rpc(timeout, 'remove');
+      activeBreakpoints.timeout = null;
+    }
   });
 }
 
@@ -165,32 +176,32 @@ function handleNewHandler(threadClient) {
 
     if(isTimeout) {
       // Process X goes to sleep
-      csp.putAsync(stores.EventStore.add, {
+      stores.EventStore.addEvent({
         type: 'sleep',
         process: procId,
         handler: handlerId,
         time: Date.now()
-      }, function() {});
+      });
     }
     else if(frames[1].callee.name === 'take_then_callback') {
       // A `take` request from process X
-      csp.putAsync(stores.EventStore.add, {
+      stores.EventStore.addEvent({
         type: 'take',
         process: procId,
         channel: channelId,
         handler: handlerId,
         time: Date.now()
-      }, function() {});
+      });
     }
     else if(frames[1].callee.name === 'put_then_callback') {
       // A `put` request from process X
-      csp.putAsync(stores.EventStore.add, {
+      stores.EventStore.addEvent({
         type: 'put',
         process: procId,
         channel: channelId,
         handler: handlerId,
         time: Date.now()
-      }, function() {});
+      });
     }
     else {
       throw new Error('handleNewHandler: unknown callee: ' +
@@ -222,17 +233,19 @@ function handleNewCommit(threadClient) {
       // Ignore commits that immediately commit the argument handler.
       // Only fire events for commits from a pending take/put
       if(argHandlerId !== handlerId) {
-        yield put(stores.EventStore.add, {
+        yield stores.EventStore.addEvent({
           type: 'fulfillment',
           fromHandler: isPut ? argHandlerId : handlerId,
-          toHandler: isPut ? handlerId : argHandlerId
+          toHandler: isPut ? handlerId : argHandlerId,
+          time: Date.now()
         });
       }
     }
     else if(isClose) {
-      yield put(stores.EventStore.add, {
+      yield stores.EventStore.addEvent({
         type: 'close',
-        handler: handlerId
+        handler: handlerId,
+        time: Date.now()
       });
     }
 
