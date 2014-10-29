@@ -6,260 +6,211 @@ let { rpc, rpc1, rpc2, clientEval, waitForPause, assert } = util;
 let stores = require("./stores");
 
 var activeBreakpoints = {};
+var chans = {
+  breaks: chan()
+}
 
 function activate() {
-  let threadClient = stores.GlobalStore.getThread();
+  let dbg = stores.GlobalStore.getDebugger();
+  let globalObj = stores.GlobalStore.getGlobalObject();
 
-  return go(function*() {
-    if(!threadClient.paused) {
-      yield rpc(threadClient, 'interrupt');
-    }
-
-    // We need to get inside the "process" module, so set a breakpoint
-    // inside a public function and call it so that we pause inside of
-    // it
-    let bpClient = yield setBreakpointWithin(threadClient, 'csp.take', 1);
-    clientEval(threadClient, 'csp.take()');
-    let packet = yield waitForPause(threadClient);
-    assert(packet.why.type === 'breakpoint', 'Breakpoint not hit');
-
-    let bindings = packet.frame.environment.parent.bindings;
-    let FnHandler = threadClient.pauseGrip(bindings.variables.FnHandler.value);
-    let FnHandlerLoc = (yield rpc(FnHandler, 'getDefinitionSite'))[0];
-
-    // Set a breakpoint in the `FnHandler` constructor
-    let createBp = yield rpc2(threadClient, 'setBreakpoint', {
-      url: FnHandlerLoc.url,
-      line: FnHandlerLoc.line + 1
-    });
-    activeBreakpoints.handlerCreate = createBp;
-
-    // Set a breakpoint in the `FnHandler.prototype.commit` function
-    let commitBp = yield rpc2(threadClient, 'setBreakpoint', {
-      url: FnHandlerLoc.url,
-      line: FnHandlerLoc.line + 10
-    });
-    activeBreakpoints.handlerCommit = commitBp;
-
-    // Set a breakpoint in the `timeout` function
-    clientEval(threadClient, 'csp.timeout');
-    packet = yield waitForPause(threadClient);
-    let timeoutFn = threadClient.pauseGrip(packet.why.frameFinished.return);
-    let timeoutLoc = (yield rpc(timeoutFn, 'getDefinitionSite'))[0];
-    let timeoutBp = yield rpc2(threadClient, 'setBreakpoint', {
-      url: timeoutLoc.url,
-      line: timeoutLoc.line + 2
-    });
-    activeBreakpoints.timeout = timeoutBp;
-
-    // Resume from the breakpoint
-    yield rpc(threadClient, 'resume');
-    // Remove the breakpoint we used to get inside the process module
-    yield rpc(bpClient, 'remove');
-
-    // Resume from the original clientEval
-    yield rpc(threadClient, 'resume');
-
-    console.log('clearing');
-    stores.EventStore.clear();
-    threadClient.addListener('paused', onPaused);
+  // We need to get inside the "process" module, so set a breakpoint
+  // inside a public function and call it so that we pause inside of
+  // it
+  let FnHandlerLoc;
+  breakInsideFunction('csp.take', 'csp.take()', 1, function(frame) {
+    let FnHandler = frame.environment.parent.getVariable('FnHandler');
+    FnHandlerLoc = {
+      url: FnHandler.script.source.url,
+      line: FnHandler.script.startLine
+    };
   });
+
+  // Set a breakpoint in the `FnHandler` constructor
+  let createBp = setBreakpoint(dbg, {
+    url: FnHandlerLoc.url,
+    line: FnHandlerLoc.line + 1
+  }, handleNewHandler);
+  activeBreakpoints.handlerCreate = createBp;
+
+  // Set a breakpoint in the `FnHandler.prototype.commit` function
+  let commitBp = setBreakpoint(dbg, {
+    url: FnHandlerLoc.url,
+    line: FnHandlerLoc.line + 9
+  }, handleNewCommit);
+  activeBreakpoints.handlerCommit = commitBp;
+
+  // Set a breakpoint in the `timeout` function
+  let timeoutFn = globalObj.evalInGlobal('csp.timeout').return;
+  let timeoutBp = setBreakpoint(dbg, {
+    url: timeoutFn.script.source.url,
+    line: timeoutFn.script.startLine + 2
+  }, handleTimeout);
+  activeBreakpoints.timeout = timeoutBp;
+
+  stores.EventStore.clear();
 }
 
 function deactivate() {
-  let threadClient = stores.GlobalStore.getThread();
-  return go(function*() {
-    let { handlerCreate, handlerCommit, timeout } = activeBreakpoints;
-    threadClient.removeListener('paused', onPaused);
-    if(handlerCreate) {
-      yield rpc(handlerCreate, 'remove');
-      activeBreakpoints.handlerCreate = null;
-    }
-    if(handlerCommit) {
-      yield rpc(handlerCommit, 'remove');
-      activeBreakpoints.handlerCommit = null;
-    }
-    if(timeout) {
-      yield rpc(timeout, 'remove');
-      activeBreakpoints.timeout = null;
-    }
-  });
+  let { handlerCreate, handlerCommit, timeout } = activeBreakpoints;
+  if(handlerCreate) {
+    removeBreakpoint(handlerCreate);
+    activeBreakpoints.handlerCreate = null;
+  }
+  if(handlerCommit) {
+    removeBreakpoint(handlerCommit);
+    activeBreakpoints.handlerCommit = null;
+  }
+  if(timeout) {
+    removeBreakpoint(timeout);
+    activeBreakpoints.timeout = null;
+  }
 }
 
-function onPaused(evt, packet) {
-  let threadClient = stores.GlobalStore.getThread();
-  let { handlerCreate, handlerCommit, timeout } = activeBreakpoints;
-
-  if(packet.why.type === 'breakpoint') {
-    let bpActor = packet.why.actors[0];
-
-    if(handlerCreate && handlerCreate.actor === bpActor) {
-      return handleNewHandler(threadClient);
-    }
-    else if(handlerCommit && handlerCommit.actor === bpActor) {
-      return handleNewCommit(threadClient);
-    }
-    else if(timeout && timeout.actor === bpActor) {
-      return handleTimeout(threadClient, packet.frame.actor);
+function setBreakpoint(dbg, loc, cb) {
+  let scripts = dbg.findScripts({ url: loc.url });
+  for(let script of scripts) {
+    let offsets = script.getLineOffsets(loc.line);
+    if(offsets.length) {
+      let bp = { hit: cb,
+                 script: script };
+      script.setBreakpoint(offsets[0], bp);
+      return bp;
     }
   }
 }
 
-function setBreakpointWithin(threadClient, expr, offset=0) {
-  return go(function*() {
-    clientEval(threadClient, expr);
-    let res = yield waitForPause(threadClient);
-    let objClient = threadClient.pauseGrip(res.why.frameFinished.return);
-    let siteLoc = (yield rpc(objClient, 'getDefinitionSite'))[0];
-    let loc = {
-      url: siteLoc.url,
-      line: siteLoc.line + offset,
-      column: siteLoc.column
-    };
+function removeBreakpoint(bp) {
+  bp.script.clearBreakpoint(bp);
+}
 
-    let [, bpClient] = yield rpc(threadClient, 'setBreakpoint', loc);
-    return bpClient;
-  });
+function breakInsideFunction(expr, callExpr, offset = 0, cb) {
+  let globalObj = stores.GlobalStore.getGlobalObject();
+  var res = globalObj.evalInGlobal(expr).return;
+  let script = res.script;
+  let loc = {
+    url: res.script.source.url,
+    line: res.script.startLine + offset,
+  };
+
+  let bp = { hit: cb };
+  script.setBreakpoint(script.getLineOffsets(loc.line)[0], bp);
+  globalObj.evalInGlobal('csp.take()');
+  script.clearBreakpoint(bp);
+}
+
+let _lastId = 0;
+function newObjectId() {
+  return ++_lastId;
 }
 
 // handlers
 
-// process X requested a take from channel Y at time T (handler H)
-// process X requested a put to channel Y at time T (handler H)
-// process X requested a select from channels Yn at time T (handler H)
-// channel Y resolved handlers TakeH and PutH with value V
+function handleNewHandler(frame) {
+  let frame0 = frame;
+  let frame1 = frame0.older;
+  let frame2 = frame1.older;
 
-var __lastDebuggerId = 0;
-function markObject(threadClient, obj, frameActor) {
-  return go(function*() {
-    __lastDebuggerId++;
-    clientEval(
-      threadClient,
-      'if(!' + obj + '.__debuggerId) {' +
-        '  ' + obj + '.__debuggerId = ' + __lastDebuggerId +
-        '} ' + obj + '.__debuggerId',
-      frameActor
-    );
-    let id = (yield waitForPause(threadClient)).why.frameFinished.return;
-    if(id !== __lastDebuggerId) {
-      // This isn't necessary, but don't waste an id if the object
-      // already had one, just for thoroughness
-      __lastDebuggerId--;
-    }
-    return id;
-  });
+  if(frame2.environment.parent.callee.name === 'spawn') {
+    return;
+  }
+
+  let handler = frame0.this;
+  let channel = frame1.environment.getVariable('channel');
+  let proc = frame2.this;
+
+  let handlerId = handler._id = handler._id || newObjectId();
+  let channelId = channel._id = channel._id || newObjectId();
+  let procId = proc._id = proc._id || newObjectId();
+  let _timeout = channel.getOwnPropertyDescriptor('_timeout');
+  let isTimeout = _timeout && _timeout.value !== undefined;
+
+  if(isTimeout) {
+    // Process X goes to sleep
+    stores.EventStore.addEvent({
+      type: 'sleep',
+      process: procId,
+      handler: handlerId,
+      time: Date.now()
+    });
+  }
+  else if(frame1.callee.name === 'take_then_callback') {
+    // A `take` request from process X
+    stores.EventStore.addEvent({
+      type: 'take',
+      process: procId,
+      channel: channelId,
+      handler: handlerId,
+      time: Date.now()
+    });
+  }
+  else if(frame1.callee.name === 'put_then_callback') {
+    // A `put` request from process X
+    stores.EventStore.addEvent({
+      type: 'put',
+      process: procId,
+      channel: channelId,
+      handler: handlerId,
+      time: Date.now()
+    });
+  }
+  else {
+    throw new Error('handleNewHandler: unknown callee: ' +
+                    frame1.callee);
+  }
 }
 
-function getObjectId(threadClient, obj, frameActor) {
-  return go(function*() {
-    clientEval(threadClient, obj + '.__debuggerId', frameActor);
-    let id = (yield waitForPause(threadClient)).why.frameFinished.return;
-    return id;
-  });
-}
+function handleNewCommit(frame) {
+  let frame0 = frame;
+  let frame1 = frame0.older;
 
-function handleNewHandler(threadClient) {
-  go(function*() {
-    let frames = (yield rpc(threadClient, 'getFrames', 0, 3))[0].frames;
+  if(frame1.older &&
+     frame1.older.older &&
+     frame1.older.older.environment.parent.callee.name === 'spawn') {
+    return;
+  }
 
-    if(frames[2].environment.parent.function.name === 'spawn') {
-      threadClient.resume();
-      return;
-    }
+  let handlerId = frame0.this._id;
+  let funcName = frame1.callee.displayName;
+  let isPut = funcName.indexOf('_put') !== -1;
+  let isTake = funcName.indexOf('_take') !== -1;
+  var isClose = funcName.indexOf('close') !== -1;
 
-    let handlerId = yield markObject(threadClient, 'this', frames[0].actor);
-    let procId = yield markObject(threadClient, 'this', frames[2].actor);
-    let channelId = yield markObject(threadClient, 'channel', frames[1].actor);
+  if(isPut || isTake) {
+    let argHandler = frame1.environment.getVariable('handler');
+    let argHandlerId = argHandler._id;
 
-    clientEval(threadClient, 'channel._timeout', frames[1].actor);
-    let isTimeout = (yield waitForPause(threadClient)).why.frameFinished.return === true;
-
-    if(isTimeout) {
-      // Process X goes to sleep
+    // Ignore commits that immediately commit the argument handler.
+    // Only fire events for commits from a pending take/put
+    if(argHandlerId !== handlerId) {
       stores.EventStore.addEvent({
-        type: 'sleep',
-        process: procId,
-        handler: handlerId,
-        time: Date.now()
-      });
-    }
-    else if(frames[1].callee.name === 'take_then_callback') {
-      // A `take` request from process X
-      stores.EventStore.addEvent({
-        type: 'take',
-        process: procId,
-        channel: channelId,
-        handler: handlerId,
-        time: Date.now()
-      });
-    }
-    else if(frames[1].callee.name === 'put_then_callback') {
-      // A `put` request from process X
-      stores.EventStore.addEvent({
-        type: 'put',
-        process: procId,
-        channel: channelId,
-        handler: handlerId,
+        type: 'fulfillment',
+        fromHandler: isPut ? argHandlerId : handlerId,
+        toHandler: isPut ? handlerId : argHandlerId,
         time: Date.now()
       });
     }
     else {
-      throw new Error('handleNewHandler: unknown callee: ' +
-                      frames[1].callee);
-    }
-
-    threadClient.resume();
-  });
-}
-
-function handleNewCommit(threadClient) {
-  go(function*() {
-    let frames = (yield rpc(threadClient, 'getFrames', 0, 5))[0].frames;
-
-    if(frames.length >= 4 &&
-       frames[3].environment.parent.function.name === 'spawn') {
-      threadClient.resume();
-      return;
-    }
-
-    let handlerId = yield getObjectId(threadClient, 'this', frames[0].actor);
-    let funcName = frames[1].callee.displayName;
-    let isPut = funcName.indexOf('_put') !== -1;
-    let isTake = funcName.indexOf('_take') !== -1;
-    var isClose = funcName.indexOf('close') !== -1;
-
-    if(isPut || isTake) {
-      let argHandlerId = yield getObjectId(threadClient, 'handler', frames[1].actor);
-      // Ignore commits that immediately commit the argument handler.
-      // Only fire events for commits from a pending take/put
-      if(argHandlerId !== handlerId) {
-        yield stores.EventStore.addEvent({
-          type: 'fulfillment',
-          fromHandler: isPut ? argHandlerId : handlerId,
-          toHandler: isPut ? handlerId : argHandlerId,
+      if(frame1.this.getOwnPropertyDescriptor('closed').value === true) {
+        stores.EventStore.addEvent({
+          type: 'close',
+          handler: handlerId,
           time: Date.now()
         });
       }
     }
-    else if(isClose) {
-      yield stores.EventStore.addEvent({
-        type: 'close',
-        handler: handlerId,
-        time: Date.now()
-      });
-    }
-
-    threadClient.resume();
-  });
+  }
+  else if(isClose) {
+    stores.EventStore.addEvent({
+      type: 'close',
+      handler: handlerId,
+      time: Date.now()
+    });
+  }
 }
 
-function handleTimeout(threadClient, frameActor) {
-  go(function*() {
-    let frames = (yield rpc(threadClient, 'getFrames', 0, 100))[0].frames;
-    clientEval(threadClient, 'chan._timeout = true', frameActor);
-    yield waitForPause(threadClient);
-    threadClient.resume();
-  });
+function handleTimeout(frame) {
+  frame.eval('chan._timeout = true');
 }
 
 module.exports = { activate, deactivate };

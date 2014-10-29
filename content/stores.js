@@ -2,12 +2,20 @@ let csp = require("./lib/csp.js");
 let { go, take, put, chan, sleep } = csp;
 
 let GlobalStore = {
-  getThread: function() {
-    return this.thread;
+  getDebugger: function() {
+    return this.dbg;
   },
 
-  setThread: function(thread) {
-    this.thread = thread;
+  setDebugger: function(dbg) {
+    this.dbg = dbg;
+  },
+
+  getGlobalObject: function(obj) {
+    return this.obj;
+  },
+
+  setGlobalObject: function(obj) {
+    this.obj = obj;
   },
 
   getDocument: function() {
@@ -55,7 +63,8 @@ let EventStore = {
           type: proc.currentState.type,
           timeRange: [proc.currentState.started, event.time]
         })
-        proc.currentState = null;
+        toProc.currentState = null;
+        fromProc.currentState = null;
 
         delete this.activeHandlers[event.fromHandler];
         delete this.activeHandlers[event.toHandler];

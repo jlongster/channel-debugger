@@ -1,12 +1,12 @@
-var { go, take, put, chan } = csp;
+var { go, take, put, chan, timeout } = csp;
 
 function run() {
-  var ch = chan()
+  var ch = chan();
 
   go(function*() {
+    yield put(ch, 5);
+    yield timeout(1000);
     yield put(ch, 10);
-    yield csp.timeout(1000);
-    ch.close();
   });
 
   go(function*() {

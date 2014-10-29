@@ -34,10 +34,18 @@ div {
     float: right;
     width: calc(100% - 250px);
     height: calc(100% - 2em);
-    background-color: blue;
+    background-color: #ddddff;
 }
 
 .timeline svg {
     width: 100%;
     height: 100%;
+}
+
+canvas {
+    display: block;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    heigth: 100%;
 }

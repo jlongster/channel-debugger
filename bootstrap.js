@@ -2,12 +2,15 @@
 const { classes: Cc, interfaces: Ci, utils: Cu, results: Cr } = Components;
 
 let loader = Cu.import("resource://gre/modules/commonjs/toolkit/loader.js", {}).Loader;
+Components.utils.import('resource://gre/modules/jsdebugger.jsm');
+addDebuggerToGlobal(this);
 
 function makeLoader() {
   var ContentLoader = new loader.Loader({
     paths: { "": "resource://gre/modules/commonjs/",
              "devtools": "resource:///modules/devtools",
-             "content": "chrome://csp-debugger/content" }
+             //"content": "chrome://csp-debugger/content"
+             "content": "file:///Users/james/projects/mozilla/channel-debugger/content" }
   });
 
   return {
@@ -36,19 +39,16 @@ let makeToolDefinition = util.once(() => {
       loader.instance.globals.React = iframeWindow.React;
       loader.instance.globals.d3 = iframeWindow.d3;
       loader.instance.globals.requestAnimationFrame = iframeWindow.mozRequestAnimationFrame;
+      loader.instance.globals.Debugger = Debugger;
+      loader.instance.globals.xpcInspector =
+        Cc["@mozilla.org/jsinspector;1"].getService(Ci.nsIJSInspector);
+
       loader.instance.globals.reload = function() {
         let def = makeToolDefinition();
         gDevTools.unregisterTool(def);
         gDevTools.registerTool(def);
         toolbox.selectTool(def.id);
       };
-
-      let mods = Object.keys(loader.instance.modules);
-      console.log(JSON.stringify(mods, null, 2));
-
-      var observerService = Cc["@mozilla.org/observer-service;1"]
-          .getService(Components.interfaces.nsIObserverService);
-      observerService.notifyObservers(null, "startupcache-invalidate", null);
 
       let app = loader.require("content/main.js");
 
@@ -59,6 +59,9 @@ let makeToolDefinition = util.once(() => {
         },
         destroy: function() {
           app.destroy();
+          var observerService = Cc["@mozilla.org/observer-service;1"]
+              .getService(Components.interfaces.nsIObserverService);
+          observerService.notifyObservers(null, "startupcache-invalidate", null);
         },
       };
     }

@@ -20,10 +20,10 @@ let App = React.createClass({
     let state = { recording: !this.state.recording };
 
     if(this.state.recording) {
-      instrument.deactivate(this.props.threadClient);
+      instrument.deactivate();
     }
     else {
-      instrument.activate(this.props.threadClient);
+      instrument.activate();
       state.startTime = Date.now();
     }
 
@@ -82,26 +82,27 @@ let App = React.createClass({
 
 let Timeline = React.createClass({
   componentDidMount: function() {
-    // let render = () => {
-    //   this.svgRenderer.render(this.props.processes);
+    let render = () => {
+      this.renderer.render(this.props.processes);
 
-    //   if(!this.done) {
-    //     requestAnimationFrame(render);
-    //   }
-    // }
+      if(!this.done) {
+        requestAnimationFrame(render);
+      }
+    }
 
-    let svgNode = this.getDOMNode().querySelector('svg');
-    this.svgRenderer = new timeline.Renderer(svgNode,
-                                             this.props.startTime);
-    //render();
-    this.svgRenderer.render({
-      1: {}, 2: {}
-    });
-    console.log('rendering');
+    let document = stores.GlobalStore.getDocument();
+    let rect = this.getDOMNode().getBoundingClientRect();
+    let canvas = document.createElementNS('http://www.w3.org/1999/xhtml', 'canvas');
+    this.getDOMNode().appendChild(canvas);
+    canvas.width = rect.width * 2;
+    canvas.height = rect.height * 2;
+    this.renderer = new timeline.Renderer(canvas,
+                                          this.props.startTime);
+    render();
   },
 
   componentDidUpdate: function() {
-    //this.svgRenderer.render(this.props.processes);
+    //this.renderer.render(this.props.processes);
   },
 
   componentWillUnmount: function() {
@@ -109,8 +110,7 @@ let Timeline = React.createClass({
   },
 
   render: function() {
-    return dom.div({ className: 'timeline' },
-                   dom.svg(null));
+    return dom.div({ className: 'timeline' });
   }
 });
 
@@ -119,16 +119,15 @@ function init(window, toolbox) {
   stores.GlobalStore.setDocument(window.document);
   // target.on('will-navigate', willNavigate);
 
-  dump('init...\n');
-
   go(function*() {
-    let [, threadClient] = yield rpc(target.activeTab, 'attachThread', {});
-    stores.GlobalStore.setThread(threadClient);
-    render();
+    let dbg = new Debugger();
+    dbg.addDebuggee(toolbox.target.window.wrappedJSObject);
+    stores.GlobalStore.setDebugger(dbg);
 
-    if(threadClient.paused) {
-      yield rpc(threadClient, 'resume');
-    }
+    let globalObj = dbg.makeGlobalObjectReference(toolbox.target.window);
+    stores.GlobalStore.setGlobalObject(globalObj);
+
+    render();
   });
 }
 
@@ -152,8 +151,7 @@ function render() {
 
 function _render(events) {
   let document = stores.GlobalStore.getDocument();
-  React.renderComponent(App({ threadClient: stores.GlobalStore.getThread(),
-                              events: events,
+  React.renderComponent(App({ events: events,
                               processes: stores.EventStore.getAllProcesses() }),
                         document.querySelector('body'));
 }
