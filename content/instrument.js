@@ -26,6 +26,14 @@ function activate() {
     };
   });
 
+  // Set a breakpoint in `go`
+  let goFn = globalObj.evalInGlobal('csp.go').return;
+  let goBp = setBreakpoint(dbg, {
+    url: goFn.script.source.url,
+    line: goFn.script.startLine + 2
+  }, handleGo);
+  activeBreakpoints.go = goBp;
+
   // Set a breakpoint in the `FnHandler` constructor
   let createBp = setBreakpoint(dbg, {
     url: FnHandlerLoc.url,
@@ -106,6 +114,16 @@ function newObjectId() {
 
 // handlers
 
+function handleGo(frame) {
+  let f = frame.environment.getVariable('f');
+  let gen = frame.environment.getVariable('gen');
+  gen._procInfo = {
+    name: f.name || f.displayName,
+    url: f.script.source.url,
+    line: f.script.startLine
+  }
+}
+
 function handleNewHandler(frame) {
   let frame0 = frame;
   let frame1 = frame0.older;
@@ -122,6 +140,10 @@ function handleNewHandler(frame) {
   let handlerId = handler._id = handler._id || newObjectId();
   let channelId = channel._id = channel._id || newObjectId();
   let procId = proc._id = proc._id || newObjectId();
+
+  let procInfo = proc.getOwnPropertyDescriptor('gen').value._procInfo;
+  stores.EventStore.addProcess(procId, procInfo);
+
   let _timeout = channel.getOwnPropertyDescriptor('_timeout');
   let isTimeout = _timeout && _timeout.value !== undefined;
 

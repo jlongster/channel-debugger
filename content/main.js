@@ -1,5 +1,6 @@
 "use strict";
 let dom = React.DOM;
+let div = dom.div;
 let csp = require("./lib/csp.js");
 let { go, take, put, chan, sleep, alts } = csp;
 let t = require("./lib/transducers.js");
@@ -13,7 +14,8 @@ let timeline = require("./timeline");
 let App = React.createClass({
   getInitialState: function() {
     return { recording: false,
-             startTime: 0 };
+             startTime: 0,
+             stopTime: null };
   },
 
   toggleRecord: function() {
@@ -21,61 +23,64 @@ let App = React.createClass({
 
     if(this.state.recording) {
       instrument.deactivate();
+      state.stopTime = Date.now();
     }
     else {
       instrument.activate();
       state.startTime = Date.now();
+      state.stopTime = null;
     }
 
     this.setState(state);
   },
 
   render: function() {
-    // let statements = map(this.props.events, event => {
-    //   switch(event.type) {
-    //   case 'take':
-    //     return 'proc ' + event.process + ' take (handler ' + event.handler + ')';
-    //     break;
-    //   case 'put':
-    //     return 'proc ' + event.process + ' put (handler ' + event.handler + ')';
-    //     break;
-    //   case 'sleep':
-    //     return 'proc ' + event.process + ' went to sleep (handler ' + event.handler + ')';
-    //     break;
-    //   case 'fulfillment':
-    //     return 'value sent from ' + event.fromHandler + ' to ' + event.toHandler;
-    //     break;
-    //   case 'close':
-    //     return 'closed ' + event.handler;
-    //   }
-    // });
+    let statements = map(this.props.events, event => {
+      switch(event.type) {
+      case 'take':
+        return 'proc ' + event.process + ' take (handler ' + event.handler + ')';
+        break;
+      case 'put':
+        return 'proc ' + event.process + ' put (handler ' + event.handler + ')';
+        break;
+      case 'sleep':
+        return 'proc ' + event.process + ' went to sleep (handler ' + event.handler + ')';
+        break;
+      case 'fulfillment':
+        return 'value sent from ' + event.fromHandler + ' to ' + event.toHandler;
+        break;
+      case 'close':
+        return 'closed ' + event.handler;
+      }
+    });
 
-    let statements = t.toArray(
-      this.props.processes,
-      mapcat(kv => {
-        let id = kv[0];
-        return map(kv[1].history, x => {
-          return '[' + id + '] ' + x.type + ' ' + x.timeRange.join(' ');
-        })
-      })
-    );
+    // let statements = t.toArray(
+    //   this.props.processes,
+    //   mapcat(kv => {
+    //     let id = kv[0];
+    //     return map(kv[1].history, x => {
+    //       return '[' + id + '] ' + x.type + ' ' + x.timeRange.join(' ');
+    //     })
+    //   })
+    // );
 
-    return dom.div(
+    return div(
       { className: 'tool' },
-      dom.div(
+      div(
         { className: 'toolbar' },
         dom.button({ onClick: this.toggleRecord },
                    this.state.recording ? 'Stop Recording' : 'Record'),
         dom.button({ onClick: reload }, 'Reload')
       ),
-      dom.div(
+      div(
         { className: 'debug-panel' },
         statements.map(x => {
-          return dom.div(null, x)
+          return div(null, x)
         })
       ),
       Timeline({ processes: this.props.processes,
-                 startTime: this.state.startTime })
+                 startTime: this.state.startTime,
+                 stopTime: this.state.stopTime })
     );
   }
 });
@@ -83,7 +88,9 @@ let App = React.createClass({
 let Timeline = React.createClass({
   componentDidMount: function() {
     let render = () => {
-      this.renderer.render(this.props.processes);
+      this.renderer.render(this.props.processes,
+                           this.props.startTime,
+                           this.props.stopTime);
 
       if(!this.done) {
         requestAnimationFrame(render);
@@ -91,18 +98,17 @@ let Timeline = React.createClass({
     }
 
     let document = stores.GlobalStore.getDocument();
-    let rect = this.getDOMNode().getBoundingClientRect();
-    let canvas = document.createElementNS('http://www.w3.org/1999/xhtml', 'canvas');
-    this.getDOMNode().appendChild(canvas);
-    canvas.width = rect.width * 2;
-    canvas.height = rect.height * 2;
-    this.renderer = new timeline.Renderer(canvas,
-                                          this.props.startTime);
+    let svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    this.getDOMNode().querySelector('.timeline-wrapper').appendChild(svg);
+    this.renderer = new timeline.Renderer(svg);
     render();
   },
 
   componentDidUpdate: function() {
-    //this.renderer.render(this.props.processes);
+    let wrapper = this.getDOMNode().querySelector('.timeline-wrapper');
+    let rect = wrapper.getBoundingClientRect();
+    console.log(rect.height);
+    this.renderer.setHeight(rect.height);
   },
 
   componentWillUnmount: function() {
@@ -110,48 +116,58 @@ let Timeline = React.createClass({
   },
 
   render: function() {
-    return dom.div({ className: 'timeline' });
+    return div(
+      { className: 'timeline' },
+      div({ className: 'timeline-wrapper' },
+          div({ className: 'labels' },
+              this.props.processes.map(proc => {
+                return div(null, proc.meta.name);
+              })))
+    );
   }
 });
 
 function init(window, toolbox) {
   let target = toolbox.target;
+
+  let dbg = new Debugger();
+  stores.GlobalStore.setDebugger(dbg);
   stores.GlobalStore.setDocument(window.document);
-  // target.on('will-navigate', willNavigate);
 
-  go(function*() {
-    let dbg = new Debugger();
+  function _init() {
     dbg.addDebuggee(toolbox.target.window.wrappedJSObject);
-    stores.GlobalStore.setDebugger(dbg);
-
     let globalObj = dbg.makeGlobalObjectReference(toolbox.target.window);
     stores.GlobalStore.setGlobalObject(globalObj);
-
     render();
+  }
+
+  target.on('will-navigate', () => {
+    dbg.removeAllDebuggees();
+    stores.EventStore.clear();
+    React.unmountComponentAtNode(window.document.querySelector('body'));
   });
+
+  target.on('navigate', _init);
+
+  _init();
+  renderLoop();
 }
 
 function destroy() {
   instrument.deactivate();
 }
 
-function render() {
+function renderLoop() {
   go(function*() {
-    var events = [];
-    let event;
-
-    _render(events);
-
-    while((event = yield take(stores.EventStore.add)) !== csp.CLOSED) {
-      events.push(event);
-      _render(events);
+    while((yield take(stores.EventStore.add)) !== csp.CLOSED) {
+      render();
     }
   });
 }
 
-function _render(events) {
+function render() {
   let document = stores.GlobalStore.getDocument();
-  React.renderComponent(App({ events: events,
+  React.renderComponent(App({ events: stores.EventStore.getAllEvents(),
                               processes: stores.EventStore.getAllProcesses() }),
                         document.querySelector('body'));
 }

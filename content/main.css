@@ -33,19 +33,32 @@ div {
 .timeline {
     float: right;
     width: calc(100% - 250px);
+    background-color: #f9f9f9;
     height: calc(100% - 2em);
-    background-color: #ddddff;
+    overflow: auto;
 }
 
-.timeline svg {
-    width: 100%;
-    height: 100%;
-}
-
-canvas {
-    display: block;
-    margin: 0;
+.timeline-wrapper {
     padding: 0;
-    width: 100%;
-    heigth: 100%;
+    margin: 0;
+    overflow: hidden;
+}
+
+.timeline-wrapper .labels {
+    float: left;
+    width: 100px;
+    margin-top: 15px;
+}
+
+.timeline-wrapper .labels > div {
+    height: 35px;
+    padding-top: 8px;
+    padding-right: 15px;
+    text-align: right;
+}
+
+.timeline-wrapper svg {
+    float: right;
+    width: calc(100% - 100px);
+    height: 100%;
 }
