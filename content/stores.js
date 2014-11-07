@@ -1,5 +1,9 @@
 let csp = require("./lib/csp.js");
 let { go, take, put, chan, sleep } = csp;
+let util = require("./util");
+let { rpc, rpc1, rpc2, clientEval, waitForPause, assert } = util;
+let t = require("./lib/transducers.js");
+let { map, filter, seq } = t;
 
 let GlobalStore = {
   getDebugger: function() {
@@ -10,12 +14,20 @@ let GlobalStore = {
     this.dbg = dbg;
   },
 
-  getGlobalObject: function(obj) {
+  getGlobalObject: function() {
     return this.obj;
   },
 
   setGlobalObject: function(obj) {
     this.obj = obj;
+  },
+
+  getTarget: function() {
+    return this.target;
+  },
+
+  setTarget: function(target) {
+    this.target = target;
   },
 
   getDocument: function() {
@@ -32,6 +44,7 @@ let EventStore = {
   events: [],
   processes: [],
   processesById: {},
+  transfers: [],
   activeHandlers: {},
 
   addEvent: function(event) {
@@ -46,26 +59,52 @@ let EventStore = {
         };
         this.activeHandlers[event.handler] = proc;
       }
+
+      if(event.processEnding) {
+        setTimeout(() => {
+          let cur = t.toArray(this.activeHandlers,
+                            filter(kv => kv[1] === proc));
+          if(cur.length) {
+            cur = cur[0];
+            delete this.activeHandlers[cur[0]];
+            proc.currentState = null;
+          }
+        }, 500);
+      }
     }
     else if(type === 'fulfillment') {
       let fromProc = this.activeHandlers[event.fromHandler];
       let toProc = this.activeHandlers[event.toHandler];
+      let proc;
 
       if(fromProc && toProc) {
-        let proc = (fromProc.currentState.started < toProc.currentState.started ?
-                    fromProc :
-                    toProc)
-
-        proc.history.push({
-          type: proc.currentState.type,
-          timeRange: [proc.currentState.started, event.time]
-        })
-        toProc.currentState = null;
-        fromProc.currentState = null;
-
-        delete this.activeHandlers[event.fromHandler];
-        delete this.activeHandlers[event.toHandler];
+        proc = (fromProc.currentState.started < toProc.currentState.started ?
+                fromProc :
+                toProc)
       }
+      else {
+        proc = toProc;
+      }
+
+      proc.history.push({
+        type: proc.currentState.type,
+        timeRange: [proc.currentState.started, event.time]
+      });
+      toProc.currentState = null;
+      if(fromProc) {
+        fromProc.currentState = null;
+      }
+
+      if(fromProc) {
+        this.transfers.push({
+          fromProc: fromProc,
+          toProc: toProc,
+          time: event.time
+        });
+      }
+
+      delete this.activeHandlers[event.fromHandler];
+      delete this.activeHandlers[event.toHandler];
     }
     else if(type === 'close') {
       let proc = this.activeHandlers[event.handler];
@@ -109,10 +148,15 @@ let EventStore = {
     return this.events;
   },
 
+  getAllTransfers: function() {
+    return this.transfers;
+  },
+
   clear: function() {
     this.events = [];
     this.processes = [];
     this.processesById = {};
+    this.transfers = [];
     this.activeHandlers = {};
   }
 }

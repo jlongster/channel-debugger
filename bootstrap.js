@@ -5,10 +5,13 @@ let loader = Cu.import("resource://gre/modules/commonjs/toolkit/loader.js", {}).
 Components.utils.import('resource://gre/modules/jsdebugger.jsm');
 addDebuggerToGlobal(this);
 
+Cu.import("resource://gre/modules/devtools/dbg-server.jsm");
+
 function makeLoader() {
   var ContentLoader = new loader.Loader({
     paths: { "": "resource://gre/modules/commonjs/",
              "devtools": "resource:///modules/devtools",
+             "devtools/server": "resource://gre/modules/devtools/server",
              //"content": "chrome://csp-debugger/content"
              "content": "file:///Users/james/projects/mozilla/channel-debugger/content" }
   });
@@ -28,8 +31,8 @@ let makeToolDefinition = util.once(() => {
     id: 'csp-debugger',
     ordinal: 99,
     url: "chrome://csp-debugger/content/main.xul",
-    label: 'CSP Debugger',
-    tooltip: 'Debug CSP channels',
+    label: 'Processes',
+    tooltip: 'Debug Concurrent Processes',
     isTargetSupported: function(target) {
       return true;
     },
@@ -40,8 +43,7 @@ let makeToolDefinition = util.once(() => {
       loader.instance.globals.d3 = iframeWindow.d3;
       loader.instance.globals.requestAnimationFrame = iframeWindow.mozRequestAnimationFrame;
       loader.instance.globals.Debugger = Debugger;
-      loader.instance.globals.xpcInspector =
-        Cc["@mozilla.org/jsinspector;1"].getService(Ci.nsIJSInspector);
+      loader.instance.globals.DebuggerServer = DebuggerServer;
 
       loader.instance.globals.reload = function() {
         let def = makeToolDefinition();

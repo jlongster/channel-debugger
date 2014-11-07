@@ -6,10 +6,12 @@ var channels = require("./impl/channels");
 var select = require("./impl/select");
 var process = require("./impl/process");
 var timers = require("./impl/timers");
+var config = require("./impl/config");
+var dispatch = require("./impl/dispatch");
 
-function spawn(gen) {
+function spawn(gen, creator) {
   var ch = channels.chan(buffers.fixed(1));
-  (new process.Process(gen, function(value) {
+  var proc = new process.Process(gen, function(value) {
     if (value === channels.CLOSED) {
       ch.close();
     } else {
@@ -17,13 +19,16 @@ function spawn(gen) {
         ch.close();
       });
     }
-  })).run();
+  }, creator);
+  dispatch.run(function() {
+    proc.run();
+  });
   return ch;
 };
 
 function go(f, args) {
   var gen = f.apply(null, args);
-  return spawn(gen);
+  return spawn(gen, f);
 };
 
 function chan(bufferOrNumber, xform, exHandler) {
@@ -55,15 +60,24 @@ module.exports = {
 
   put: process.put,
   take: process.take,
+  takePropagate: process.takePropagate,
   sleep: process.sleep,
   alts: process.alts,
   putAsync: process.put_then_callback,
   takeAsync: process.take_then_callback,
+  Failure: process.Failure,
 
-  timeout: timers.timeout
+  timeout: timers.timeout,
+  debugType: function(x) { config.debugType = x; },
+  hardFailure: function(x) {
+    if(x == null) {
+      x = true;
+    }
+    config.hardFailure = x;
+  }
 };
 
-},{"./impl/buffers":3,"./impl/channels":4,"./impl/process":6,"./impl/select":7,"./impl/timers":8}],2:[function(require,module,exports){
+},{"./impl/buffers":3,"./impl/channels":4,"./impl/config":5,"./impl/dispatch":6,"./impl/process":7,"./impl/select":8,"./impl/timers":9}],2:[function(require,module,exports){
 "use strict";
 
 var Box = require("./impl/channels").Box;
@@ -78,6 +92,9 @@ var csp = require("./csp.core"),
     chan = csp.chan,
     CLOSED = csp.CLOSED;
 
+
+function noOp(v) {
+}
 
 function mapFrom(f, ch) {
   return {
@@ -296,7 +313,7 @@ function map(f, chs, bufferOrN) {
         values[i] = value;
         dcount --;
         if (dcount === 0) {
-          putAsync(dchan, values.slice(0));
+          putAsync(dchan, values.slice(0), noOp);
         }
       };
     }(i));
@@ -508,7 +525,7 @@ function mult(ch) {
     return function(stillOpen) {
       dcount --;
       if (dcount === 0) {
-        putAsync(dchan, true);
+        putAsync(dchan, true, noOp);
       }
       if (!stillOpen) {
         m.untap(tap.channel);
@@ -570,7 +587,7 @@ var Mix = function(ch) {
 };
 
 Mix.prototype._changed = function() {
-  putAsync(this.change, true);
+  putAsync(this.change, true, noOp);
 };
 
 Mix.prototype._getAllState = function() {
@@ -1089,7 +1106,6 @@ Channel.prototype._put = function(value, handler) {
   }
 
   if (this.closed || !handler.is_active()) {
-    handler.commit();
     return new Box(!this.closed);
   }
 
@@ -1182,11 +1198,9 @@ Channel.prototype._take = function(handler) {
       put_handler = putter.handler;
       if (put_handler.is_active()) {
         callback = put_handler.commit();
-        if (callback) {
-          dispatch.run(function() {
-            callback(true);
-          });
-        }
+        dispatch.run(function() {
+          callback(true);
+        });
         if (isReduced(this.xform.step(this.buf, putter.value))) {
           this.close();
         }
@@ -1208,11 +1222,9 @@ Channel.prototype._take = function(handler) {
     put_handler = putter.handler;
     if (put_handler.is_active()) {
       callback = put_handler.commit();
-      if (callback) {
-        dispatch.run(function() {
-          callback(true);
-        });
-      }
+      dispatch.run(function() {
+        callback(true);
+      });
       return new Box(putter.value);
     }
   }
@@ -1286,11 +1298,9 @@ Channel.prototype.close = function() {
     }
     if (putter.handler.is_active()) {
       var put_callback = putter.handler.commit();
-      if (put_callback) {
-        dispatch.run(function() {
-          put_callback(false);
-        });
-      }
+      dispatch.run(function() {
+        put_callback(false);
+      });
     }
   }
 };
@@ -1302,12 +1312,11 @@ Channel.prototype.is_closed = function() {
 
 function defaultHandler(e) {
   console.log('error in channel transformer', e.stack);
-  return CLOSED;
 }
 
 function handleEx(buf, exHandler, e) {
   var def = (exHandler || defaultHandler)(e);
-  if (def !== CLOSED) {
+  if (def !== undefined && def !== CLOSED) {
     buf.add(def);
   }
   return buf;
@@ -1357,10 +1366,6 @@ function handleException(exHandler) {
 // function xform, or call the transducer xform, not both
 exports.chan = function(buf, xform, exHandler) {
   if (xform) {
-    if (!buf) {
-      throw new Error("Only buffered channels can use transducers");
-    }
-
     xform = xform(new AddTransformer());
   } else {
     xform = new AddTransformer();
@@ -1371,10 +1376,27 @@ exports.chan = function(buf, xform, exHandler) {
 };
 
 exports.Box = Box;
-exports.Channel = Channel;
+
 exports.CLOSED = CLOSED;
 
-},{"./buffers":3,"./dispatch":5}],5:[function(require,module,exports){
+},{"./buffers":3,"./dispatch":6}],5:[function(require,module,exports){
+
+function logFailure(failure) {
+  var stacks = Array.prototype.slice.call(failure.errorStack);
+
+  console.error(failure.error.stack);
+  stacks.forEach(function(err) {
+    console.error(err.stack);
+  });
+}
+
+module.exports = {
+  debugType: null,
+  hardFailure: false,
+  logFailure: logFailure
+}
+
+},{}],6:[function(require,module,exports){
 "use strict";
 
 // TODO: Use process.nextTick if it's available since it's more
@@ -1458,12 +1480,13 @@ exports.queue_delay = function(f, delay) {
   setTimeout(f, delay);
 };
 
-},{"./buffers":3}],6:[function(require,module,exports){
+},{"./buffers":3}],7:[function(require,module,exports){
 "use strict";
 
 var dispatch = require("./dispatch");
 var select = require("./select");
-var Channel = require("./channels").Channel;
+var config = require("./config");
+var CLOSED = require("./channels").CLOSED;
 
 var FnHandler = function(f) {
   this.f = f;
@@ -1479,7 +1502,7 @@ FnHandler.prototype.commit = function() {
 
 function put_then_callback(channel, value, callback) {
   var result = channel._put(value, new FnHandler(callback));
-  if (result && callback) {
+  if (result) {
     callback(result.value);
   }
 }
@@ -1491,8 +1514,9 @@ function take_then_callback(channel, callback) {
   }
 }
 
-var Process = function(gen, onFinish) {
+var Process = function(gen, onFinish, creator) {
   this.gen = gen;
+  this.creatorFunc = creator;
   this.finished = false;
   this.onFinish = onFinish;
 };
@@ -1502,6 +1526,17 @@ var Instruction = function(op, data) {
   this.data = data;
 };
 
+var Failure = function(e) {
+  if(!(this instanceof Failure)) {
+    return new Failure(e);
+  }
+  if(typeof e === 'string') {
+    e = new Error(e);
+  }
+  this.error = e;
+  this.errorStack = [];
+}
+
 var TAKE = "take";
 var PUT = "put";
 var SLEEP = "sleep";
@@ -1510,10 +1545,15 @@ var ALTS = "alts";
 // TODO FIX XXX: This is a (probably) temporary hack to avoid blowing
 // up the stack, but it means double queueing when the value is not
 // immediately available
-Process.prototype._continue = function(response) {
+Process.prototype._continue = function(response, propagation) {
   var self = this;
   dispatch.run(function() {
-    self.run(response);
+    if(response instanceof Failure) {
+      self._error(response, propagation);
+    }
+    else {
+      self.run(response);
+    }
   });
 };
 
@@ -1528,6 +1568,70 @@ Process.prototype._done = function(value) {
     }
   }
 };
+
+Process.prototype._propagateError = function(error, propagation) {
+  if(propagation.forwardTo) {
+    put_then_callback(propagation.forwardTo, error, function() {});
+    this._done(CLOSED);
+  }
+  else {
+    this._done(response);
+  }
+}
+
+Process.prototype._error = function(response, propagation) {
+  if(propagation.propagate) {
+    if(config.debugType === "throw") {
+      try {
+        this.gen.throw(response.error);
+      }
+      finally {
+        this._propagateError(response, propagation);
+      }
+    }
+    else {
+      if(config.debugType === "log") {
+        response.errorStack.push(propagation.frameErrorObj);
+      }
+
+      this._propagateError(response, propagation);
+    }
+  }
+  else {
+    if(config.hardFailure) {
+      this.gen.throw(response.error);
+    }
+    else {
+      if(config.debugType === "throw") {
+        var caught = false;
+        try {
+          this.gen.throw(response.error);
+          caught = true;
+        }
+        finally {
+          if(!caught) {
+            config.logFailure(response);
+            this._done(CLOSED);
+          }
+        }
+      }
+      else {
+        // Still need to throw it to give the process a chance to
+        // catch it
+        try {
+          this.gen.throw(response.error);
+        }
+        catch(e) {
+          if(e !== response.error) {
+            throw e;
+          }
+          config.logFailure(response);
+          this._done(CLOSED);
+        }
+      }
+    }
+  }
+}
 
 Process.prototype.run = function(response) {
   if (this.finished) {
@@ -1544,21 +1648,34 @@ Process.prototype.run = function(response) {
   }
 
   var ins = iter.value;
-  var self = this;
 
   if (ins instanceof Instruction) {
+    var self = this;
     switch (ins.op) {
     case PUT:
       var data = ins.data;
-      put_then_callback(data.channel, data.value, function(ok) {
-        self._continue(ok);
-      });
+      if(data.value instanceof Failure &&
+         config.debugType === "throw") {
+        try {
+          this.gen.throw(data.value);
+        }
+        finally {
+          put_then_callback(data.channel, data.value, function(ok) {
+            self._continue(ok);
+          });
+        }
+      }
+      else {
+        put_then_callback(data.channel, data.value, function(ok) {
+          self._continue(ok);
+        });
+      }
       break;
 
     case TAKE:
-      var channel = ins.data;
-      take_then_callback(channel, function(value) {
-        self._continue(value);
+      var data = ins.data;
+      take_then_callback(data.channel, function(value) {
+        self._continue(value, data);
       });
       break;
 
@@ -1575,20 +1692,28 @@ Process.prototype.run = function(response) {
       }, ins.data.options);
       break;
     }
-  }
-  else if(ins instanceof Channel) {
-    var channel = ins;
-    take_then_callback(channel, function(value) {
-      self._continue(value);
-    });
-  }
-  else {
+  } else {
     this._continue(ins);
   }
 };
 
 function take(channel) {
-  return new Instruction(TAKE, channel);
+  return new Instruction(TAKE, { channel: channel });
+}
+
+function takePropagate(channel, destChannel) {
+  var frameErrorObj;
+  if(config.debugType === "log") {
+    frameErrorObj = new Error();
+  }
+
+  var ins = new Instruction(TAKE, {
+    channel: channel,
+    propagate: true,
+    forwardTo: destChannel,
+    frameErrorObj: frameErrorObj
+  });
+  return ins;
 }
 
 function put(channel, value) {
@@ -1613,12 +1738,14 @@ exports.put_then_callback = put_then_callback;
 exports.take_then_callback = take_then_callback;
 exports.put = put;
 exports.take = take;
+exports.takePropagate = takePropagate;
 exports.sleep = sleep;
 exports.alts = alts;
 
+exports.Failure = Failure;
 exports.Process = Process;
 
-},{"./channels":4,"./dispatch":5,"./select":7}],7:[function(require,module,exports){
+},{"./channels":4,"./config":5,"./dispatch":6,"./select":8}],8:[function(require,module,exports){
 "use strict";
 
 var Box = require("./channels").Box;
@@ -1722,7 +1849,7 @@ exports.do_alts = function(operations, callback, options) {
 
 exports.DEFAULT = DEFAULT;
 
-},{"./channels":4}],8:[function(require,module,exports){
+},{"./channels":4}],9:[function(require,module,exports){
 "use strict";
 
 var dispatch = require("./dispatch");
@@ -1736,7 +1863,7 @@ exports.timeout = function timeout_channel(msecs) {
   return chan;
 };
 
-},{"./channels":4,"./dispatch":5}],"csp":[function(require,module,exports){
+},{"./channels":4,"./dispatch":6}],"csp":[function(require,module,exports){
 "use strict";
 
 var csp = require("./csp.core");

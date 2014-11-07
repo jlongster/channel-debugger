@@ -1,8 +1,15 @@
 
+/* https://developer.mozilla.org/en-US/docs/Tools/DevToolsColors */
+
 * {
     -webkit-box-sizing: border-box;
     -moz-box-sizing: border-box;
     box-sizing: border-box;
+}
+
+a {
+    text-decoration: underline;
+    cursor: pointer;
 }
 
 html, body, .tool {
@@ -61,4 +68,20 @@ div {
     float: right;
     width: calc(100% - 100px);
     height: 100%;
+}
+
+.axis path,
+.axis line {
+  fill: none;
+  stroke: #999999;
+  shape-rendering: crispEdges;
+}
+
+.axis path {
+    stroke: none;
+}
+
+.axis text {
+    font-size: 12px;
+    fill: #999999;
 }

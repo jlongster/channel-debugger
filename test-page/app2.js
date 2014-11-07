@@ -1,9 +1,13 @@
 var { go, take, put, chan, timeout } = csp;
 
+function run2() {
+  eval(document.getElementById('code').value);
+}
+
 function run() {
   var ch = chan();
 
-  go(function*() {
+  go(function* proc1() {
     var v;
     while((v = yield take(ch)) !== csp.CLOSED) {
       yield take(timeout(300));
@@ -13,7 +17,7 @@ function run() {
     console.log('done1');
   });
 
-  go(function*() {
+  go(function* proc2() {
     var v;
     yield put(ch, 1);
     while((v = yield take(ch)) !== csp.CLOSED) {

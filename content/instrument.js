@@ -18,6 +18,7 @@ function activate() {
   // inside a public function and call it so that we pause inside of
   // it
   let FnHandlerLoc;
+  let ProcessLoc;
   breakInsideFunction('csp.take', 'csp.take()', 1, function(frame) {
     let FnHandler = frame.environment.parent.getVariable('FnHandler');
     FnHandlerLoc = {
@@ -25,14 +26,6 @@ function activate() {
       line: FnHandler.script.startLine
     };
   });
-
-  // Set a breakpoint in `go`
-  let goFn = globalObj.evalInGlobal('csp.go').return;
-  let goBp = setBreakpoint(dbg, {
-    url: goFn.script.source.url,
-    line: goFn.script.startLine + 2
-  }, handleGo);
-  activeBreakpoints.go = goBp;
 
   // Set a breakpoint in the `FnHandler` constructor
   let createBp = setBreakpoint(dbg, {
@@ -114,35 +107,30 @@ function newObjectId() {
 
 // handlers
 
-function handleGo(frame) {
-  let f = frame.environment.getVariable('f');
-  let gen = frame.environment.getVariable('gen');
-  gen._procInfo = {
-    name: f.name || f.displayName,
-    url: f.script.source.url,
-    line: f.script.startLine
-  }
-}
-
 function handleNewHandler(frame) {
   let frame0 = frame;
   let frame1 = frame0.older;
   let frame2 = frame1.older;
 
-  if(frame2.environment.parent.callee.name === 'spawn') {
-    return;
-  }
-
   let handler = frame0.this;
   let channel = frame1.environment.getVariable('channel');
   let proc = frame2.this;
+  let processEnding = frame2.environment.parent.callee.name === 'spawn';
 
   let handlerId = handler._id = handler._id || newObjectId();
   let channelId = channel._id = channel._id || newObjectId();
   let procId = proc._id = proc._id || newObjectId();
 
-  let procInfo = proc.getOwnPropertyDescriptor('gen').value._procInfo;
-  stores.EventStore.addProcess(procId, procInfo);
+  let procInfo = proc.getOwnPropertyDescriptor('creatorFunc');
+  if(procInfo) {
+    procInfo = procInfo.value;
+
+    stores.EventStore.addProcess(procId, {
+      name: procInfo.displayName || procInfo.name,
+      url: procInfo.script.url,
+      line: procInfo.script.startLine
+    });
+  }
 
   let _timeout = channel.getOwnPropertyDescriptor('_timeout');
   let isTimeout = _timeout && _timeout.value !== undefined;
@@ -173,6 +161,7 @@ function handleNewHandler(frame) {
       process: procId,
       channel: channelId,
       handler: handlerId,
+      processEnding: processEnding,
       time: Date.now()
     });
   }
@@ -186,11 +175,11 @@ function handleNewCommit(frame) {
   let frame0 = frame;
   let frame1 = frame0.older;
 
-  if(frame1.older &&
-     frame1.older.older &&
-     frame1.older.older.environment.parent.callee.name === 'spawn') {
-    return;
-  }
+  // if(frame1.older &&
+  //    frame1.older.older &&
+  //    frame1.older.older.environment.parent.callee.name === 'spawn') {
+  //   return;
+  // }
 
   let handlerId = frame0.this._id;
   let funcName = frame1.callee.displayName;

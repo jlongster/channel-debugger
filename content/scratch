@@ -1,0 +1,92 @@
+
+// When we have the ability to step into generators:
+
+// This is totally bad
+    let connID = threadClient.actor.split('.')[0] + '.';
+    let conn = DebuggerServer._connections[connID];
+    let threadActor = conn.getActor(threadClient.actor);
+
+    stores.BreakpointStore.init(threadClient);
+
+    let putCh = yield stores.BreakpointStore.addBreakpointAtHook(
+      threadClient,
+      'csp._debuggerHooks.putError'
+    );
+    go(function*() {
+      let frame;
+      while((frame = yield take(putCh))) {
+        let toolbox = gDevTools.getToolbox(stores.GlobalStore.getTarget());
+        toolbox.selectTool('jsdebugger');
+        // need to automatically select the 2nd frame up
+      }
+    });
+
+    // let propCh = yield stores.BreakpointStore.addBreakpointAtHook(
+    //   threadClient,
+    //   'csp._debuggerHooks.propagateError'
+    // );
+    // go(function*() {
+    //   let frame;
+    //   while((frame = yield take(putCh))) {
+    //     threadActor.dbg.onEnterFrame = frame => {
+    //       console.log('inside generatAH');
+    //       let res = threadActor._pauseAndRespond(frame, 'frameLimit');
+    //       // if(ret !== null) {
+    //       //   res = { 'return': null };
+    //       // }
+    //       threadActor.dbg.onEnterFrame = null;
+    //       return res;
+    //     };
+    //     //clientEval(threadClient, 'process.gen.next()');
+    //     yield rpc(threadClient, 'resume');
+    //   }
+    // });
+
+
+
+let BreakpointStore = {
+  paused: chan(),
+  breakpoints: new Map(),
+
+  init: function(threadClient) {
+    threadClient.addListener('paused', (event, packet) => {
+      if(event === 'paused' &&
+         packet.why.type === 'breakpoint') {
+        let loc = this.getBreakpointLoc(packet.frame.where);
+        let ch = this.breakpoints.get(loc);
+        if(ch) {
+          csp.putAsync(ch, packet.frame);
+        }
+      }
+    });
+  },
+
+  addBreakpointAtHook: function(threadClient, name) {
+    return go(function*() {
+      clientEval(threadClient, name);
+      let packet = yield waitForPause(threadClient);
+      console.log(packet);
+      let obj = yield threadClient.pauseGrip(packet.why.frameFinished.return);
+      let loc = yield rpc1(obj, 'getDefinitionSite');
+      let bploc = {
+        url: loc.url,
+        line: loc.line + 1
+      }
+
+      yield rpc(threadClient, 'setBreakpoint', bploc);
+      let ch = chan();
+      this.breakpoints.set(bploc, ch);
+      return ch;
+    }.bind(this));
+  },
+
+  getBreakpointLoc: function(compareLoc) {
+    let locs = this.breakpoints.keys();
+    for(let loc of locs) {
+      if(loc.url === compareLoc.url &&
+         loc.line === compareLoc.line) {
+        return loc;
+      }
+    }
+  }
+};

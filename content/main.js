@@ -6,10 +6,11 @@ let { go, take, put, chan, sleep, alts } = csp;
 let t = require("./lib/transducers.js");
 let { map, filter, seq, cat, mapcat } = t;
 let util = require("./util");
-let { rpc, clientEval, waitForPause, assert } = util;
+let { rpc, rpc1, rpc2, clientEval, waitForPause, assert } = util;
 let stores = require("./stores");
 let instrument = require("./instrument");
 let timeline = require("./timeline");
+let gDevTools = require('devtools/gDevTools.jsm').gDevTools;
 
 let App = React.createClass({
   getInitialState: function() {
@@ -78,9 +79,12 @@ let App = React.createClass({
           return div(null, x)
         })
       ),
-      Timeline({ processes: this.props.processes,
-                 startTime: this.state.startTime,
-                 stopTime: this.state.stopTime })
+      Timeline({
+        processes: this.props.processes,
+        transfers: this.props.transfers,
+        startTime: this.state.startTime,
+        stopTime: this.state.stopTime
+      })
     );
   }
 });
@@ -89,6 +93,7 @@ let Timeline = React.createClass({
   componentDidMount: function() {
     let render = () => {
       this.renderer.render(this.props.processes,
+                           this.props.transfers,
                            this.props.startTime,
                            this.props.stopTime);
 
@@ -107,12 +112,33 @@ let Timeline = React.createClass({
   componentDidUpdate: function() {
     let wrapper = this.getDOMNode().querySelector('.timeline-wrapper');
     let rect = wrapper.getBoundingClientRect();
-    console.log(rect.height);
     this.renderer.setHeight(rect.height);
   },
 
   componentWillUnmount: function() {
     this.done = true;
+  },
+
+  openProcess: function(proc) {
+    let showSource = ({ DebuggerView }) => {
+      let url = proc.meta.url;
+      if (DebuggerView.Sources.containsValue(url)) {
+        DebuggerView.setEditorLocation(url,
+                                       proc.meta.line,
+                                       { noDebug: true });
+      }
+    };
+
+    let toolbox = gDevTools.getToolbox(stores.GlobalStore.getTarget());
+    let debuggerAlreadyOpen = toolbox.getPanel("jsdebugger");
+    toolbox.selectTool('jsdebugger').then(({ panelWin: dbg }) => {
+      if(debuggerAlreadyOpen) {
+        showSource(dbg);
+      }
+      else {
+        dbg.once(dbg.EVENTS.SOURCES_ADDED, () => showSource(dbg));
+      }
+    });
   },
 
   render: function() {
@@ -121,7 +147,12 @@ let Timeline = React.createClass({
       div({ className: 'timeline-wrapper' },
           div({ className: 'labels' },
               this.props.processes.map(proc => {
-                return div(null, proc.meta.name);
+                return dom.div(
+                  null,
+                  dom.a({ href: '#',
+                          onClick: this.openProcess.bind(null, proc) },
+                        proc.meta.name || 'anon')
+                );
               })))
     );
   }
@@ -133,6 +164,7 @@ function init(window, toolbox) {
   let dbg = new Debugger();
   stores.GlobalStore.setDebugger(dbg);
   stores.GlobalStore.setDocument(window.document);
+  stores.GlobalStore.setTarget(target);
 
   function _init() {
     dbg.addDebuggee(toolbox.target.window.wrappedJSObject);
@@ -148,8 +180,8 @@ function init(window, toolbox) {
   });
 
   target.on('navigate', _init);
-
   _init();
+
   renderLoop();
 }
 
@@ -168,7 +200,8 @@ function renderLoop() {
 function render() {
   let document = stores.GlobalStore.getDocument();
   React.renderComponent(App({ events: stores.EventStore.getAllEvents(),
-                              processes: stores.EventStore.getAllProcesses() }),
+                              processes: stores.EventStore.getAllProcesses(),
+                              transfers: stores.EventStore.getAllTransfers() }),
                         document.querySelector('body'));
 }
 
