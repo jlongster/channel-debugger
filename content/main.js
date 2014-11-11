@@ -167,13 +167,14 @@ function init(window, toolbox) {
   stores.GlobalStore.setTarget(target);
 
   function _init() {
-    dbg.addDebuggee(toolbox.target.window.wrappedJSObject);
-    let globalObj = dbg.makeGlobalObjectReference(toolbox.target.window);
-    stores.GlobalStore.setGlobalObject(globalObj);
-    render();
+    // dbg.addDebuggee(toolbox.target.window.wrappedJSObject);
+    // let globalObj = dbg.makeGlobalObjectReference(toolbox.target.window);
+    // stores.GlobalStore.setGlobalObject(globalObj);
+    // render();
+
+    console.log('tab', target.activeTab.client.mainRoot);
 
     // go(function*() {
-    //   console.log(target.activeTab);
     //   //let thread = yield rpc1(target.activeTab, 'attachThread', {});
     // });
   }

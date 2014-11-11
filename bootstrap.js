@@ -1,10 +1,13 @@
 "use strict";
 const { classes: Cc, interfaces: Ci, utils: Cu, results: Cr } = Components;
 
-// var globalMM = Cc["@mozilla.org/globalmessagemanager;1"]
-//     .getService(Ci.nsIMessageListenerManager);
+var globalMM = Cc["@mozilla.org/globalmessagemanager;1"]
+    .getService(Ci.nsIMessageListenerManager);
 
-// globalMM.loadFrameScript('chrome://csp-debugger/content/frame.js', false);
+globalMM.loadFrameScript('chrome://csp-debugger/content/frame.js', true);
+
+let { Services } = Cu.import("resource://gre/modules/Services.jsm", {});
+Services.prefs.setBoolPref("devtools.debugger.log", true);
 
 const { devtools } = Cu.import("resource://gre/modules/devtools/Loader.jsm", {});
 const loader = devtools;
