@@ -171,6 +171,11 @@ function init(window, toolbox) {
     let globalObj = dbg.makeGlobalObjectReference(toolbox.target.window);
     stores.GlobalStore.setGlobalObject(globalObj);
     render();
+
+    // go(function*() {
+    //   console.log(target.activeTab);
+    //   //let thread = yield rpc1(target.activeTab, 'attachThread', {});
+    // });
   }
 
   target.on('will-navigate', () => {

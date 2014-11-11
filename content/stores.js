@@ -82,8 +82,11 @@ let EventStore = {
                 fromProc :
                 toProc)
       }
-      else {
+      else if(toProc) {
         proc = toProc;
+      }
+      else {
+        return;
       }
 
       proc.history.push({
@@ -95,13 +98,11 @@ let EventStore = {
         fromProc.currentState = null;
       }
 
-      if(fromProc) {
-        this.transfers.push({
-          fromProc: fromProc,
-          toProc: toProc,
-          time: event.time
-        });
-      }
+      this.transfers.push({
+        fromProc: fromProc,
+        toProc: toProc,
+        time: event.time
+      });
 
       delete this.activeHandlers[event.fromHandler];
       delete this.activeHandlers[event.toHandler];

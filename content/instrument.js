@@ -115,7 +115,12 @@ function handleNewHandler(frame) {
   let handler = frame0.this;
   let channel = frame1.environment.getVariable('channel');
   let proc = frame2.this;
-  let processEnding = frame2.environment.parent.callee.name === 'spawn';
+  let processEnding = false;
+
+  if(frame2.environment.parent &&
+     frame2.environment.parent.callee) {
+    processEnding = frame2.environment.parent.callee.name === 'spawn';
+  }
 
   let handlerId = handler._id = handler._id || newObjectId();
   let channelId = channel._id = channel._id || newObjectId();

@@ -60,7 +60,7 @@ Renderer.prototype.setHeight = function(height) {
 
 Renderer.prototype.render = function(processes, transfers, startTime, stopTime) {
   this.scaleX = d3.scale.linear()
-    .domain([startTime, stopTime || Date.now()])
+    .domain([startTime || Date.now(), stopTime || Date.now()])
     .range([0, this.width]);
 
   let g = this.node.select('g.processes');
@@ -138,8 +138,8 @@ Renderer.prototype.renderTransfers = function(node, transfers, processes) {
   let centerOffsetY = 32;
 
   transfers = map(transfers, transfer => {
-    let fromIdx = processes.indexOf(transfer.fromProc);
     let toIdx = processes.indexOf(transfer.toProc);
+    let fromIdx = transfer.fromProc ? processes.indexOf(transfer.fromProc) : toIdx;
     let fromY, toY, marker;
 
     if(fromIdx < toIdx) {
@@ -147,10 +147,15 @@ Renderer.prototype.renderTransfers = function(node, transfers, processes) {
       toY = toIdx * 35 - 15 + centerOffsetY;
       marker = 'url("#arrow-down")';
     }
-    else {
+    else if(fromIdx > toIdx) {
       fromY = fromIdx * 35 - 10 + centerOffsetY;
       toY = toIdx * 35 + 15 + centerOffsetY;
       marker = 'url("#arrow-up")';
+    }
+    else {
+      toY = (toIdx - 1) * 35 + 25 + centerOffsetY;
+      fromY = toY;
+      marker = 'url("#arrow-down")';
     }
 
     return t.merge(transfer, {

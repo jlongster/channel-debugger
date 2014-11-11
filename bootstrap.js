@@ -1,32 +1,20 @@
 "use strict";
 const { classes: Cc, interfaces: Ci, utils: Cu, results: Cr } = Components;
 
-let loader = Cu.import("resource://gre/modules/commonjs/toolkit/loader.js", {}).Loader;
-Components.utils.import('resource://gre/modules/jsdebugger.jsm');
-addDebuggerToGlobal(this);
+// var globalMM = Cc["@mozilla.org/globalmessagemanager;1"]
+//     .getService(Ci.nsIMessageListenerManager);
 
-Cu.import("resource://gre/modules/devtools/dbg-server.jsm");
+// globalMM.loadFrameScript('chrome://csp-debugger/content/frame.js', false);
 
-function makeLoader() {
-  var ContentLoader = new loader.Loader({
-    paths: { "": "resource://gre/modules/commonjs/",
-             "devtools": "resource:///modules/devtools",
-             "devtools/server": "resource://gre/modules/devtools/server",
-             //"content": "chrome://csp-debugger/content"
-             "content": "file:///Users/james/projects/mozilla/channel-debugger/content" }
-  });
+const { devtools } = Cu.import("resource://gre/modules/devtools/Loader.jsm", {});
+const loader = devtools;
+const require = loader.require;
 
-  return {
-    instance: ContentLoader,
-    require: loader.Require(ContentLoader, { id: 'csp-debugger' })
-  };
-}
+const Debugger = require('Debugger');
+const util = require('sdk/lang/functional');
+const gDevTools = require('devtools/gDevTools.jsm').gDevTools;
 
-let require = makeLoader().require;
-let gDevTools = require('devtools/gDevTools.jsm').gDevTools;
-let util = require('sdk/lang/functional');
-
-let makeToolDefinition = util.once(() => {
+const makeToolDefinition = util.once(() => {
   return {
     id: 'csp-debugger',
     ordinal: 99,
@@ -37,22 +25,23 @@ let makeToolDefinition = util.once(() => {
       return true;
     },
     build: function(iframeWindow, toolbox) {
-      let loader = makeLoader();
-      loader.instance.globals.setTimeout = loader.require('sdk/timers').setTimeout;
-      loader.instance.globals.React = iframeWindow.React;
-      loader.instance.globals.d3 = iframeWindow.d3;
-      loader.instance.globals.requestAnimationFrame = iframeWindow.mozRequestAnimationFrame;
-      loader.instance.globals.Debugger = Debugger;
-      loader.instance.globals.DebuggerServer = DebuggerServer;
+      let instance = loader.provider.loader;
+      instance.globals.setTimeout = loader.require('sdk/timers').setTimeout;
+      instance.globals.React = iframeWindow.React;
+      instance.globals.d3 = iframeWindow.d3;
+      instance.globals.requestAnimationFrame = iframeWindow.mozRequestAnimationFrame;
+      instance.globals.Debugger = Debugger;
 
-      loader.instance.globals.reload = function() {
+      instance.globals.reload = function() {
         let def = makeToolDefinition();
         gDevTools.unregisterTool(def);
         gDevTools.registerTool(def);
         toolbox.selectTool(def.id);
       };
 
-      let app = loader.require("content/main.js");
+      //const path = "chrome://csp-debugger/content";
+      const path = "file:///Users/james/projects/mozilla/channel-debugger/content/main.js";
+      let app = require(path);
 
       return {
         open: function() {
